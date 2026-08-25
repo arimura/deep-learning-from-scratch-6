@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.17.5/.schema/devbox.schema.json",
+  "packages": [
+    "python@3.12",
+    "uv@latest",
+    "wget@latest"
+  ],
+  "env": {
+    "UV_PROJECT_ENVIRONMENT": "$PWD/.venv",
+    "UV_PYTHON_DOWNLOADS": "never",
+    "UV_PYTHON_PREFERENCE": "only-system"
+  },
+  "shell": {
+    "init_hook": [
+      "[ -f \"$UV_PROJECT_ENVIRONMENT/bin/activate\" ] && . \"$UV_PROJECT_ENVIRONMENT/bin/activate\" || echo 'Python 依存関係が未インストールです。`devbox run setup` を実行してください。'"
+    ],
+    "scripts": {
+      "setup": [
+        "uv sync --project original --all-extras --frozen"
+      ],
+      "download": [
+        "bash original/codebot/download.sh",
+        "bash original/storybot/download.sh",
+        "bash original/webbot/download.sh"
+      ]
+    }
+  }
+}
