@@ -1,0 +1,144 @@
+package bpetrain
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestCountPairs(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []int
+		want map[Pair]int
+	}{
+		{"empty", []int{}, map[Pair]int{}},
+		{"single", []int{1}, map[Pair]int{}},
+		{
+			"two",
+			[]int{1, 2},
+			map[Pair]int{{1, 2}: 1},
+		},
+		{
+			"repeated pair",
+			[]int{1, 2, 1, 2},
+			map[Pair]int{{1, 2}: 2, {2, 1}: 1},
+		},
+		{
+			// 隣接位置をすべて独立に数えるため {1,1} は 2 回
+			"same id run",
+			[]int{1, 1, 1},
+			map[Pair]int{{1, 1}: 2},
+		},
+		{
+			// "abcabcabd" をバイト値にしたもの
+			"abcabcabd",
+			[]int{97, 98, 99, 97, 98, 99, 97, 98, 100},
+			map[Pair]int{
+				{97, 98}:  3,
+				{98, 99}:  2,
+				{99, 97}:  2,
+				{98, 100}: 1,
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CountPairs(tt.in)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("CountPairs(%v) = %v, want %v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCountPairsDoesNotModifyInput(t *testing.T) {
+	in := []int{1, 2, 3}
+	want := []int{1, 2, 3}
+	CountPairs(in)
+	if !reflect.DeepEqual(in, want) {
+		t.Errorf("CountPairs modified input: got %v, want %v", in, want)
+	}
+}
+
+func TestMerge(t *testing.T) {
+	tests := []struct {
+		name  string
+		in    []int
+		pair  Pair
+		newID int
+		want  []int
+	}{
+		{"empty", []int{}, Pair{1, 2}, 256, []int{}},
+		{"single", []int{1}, Pair{1, 2}, 256, []int{1}},
+		{"no match", []int{1, 3, 2}, Pair{1, 2}, 256, []int{1, 3, 2}},
+		{"head", []int{1, 2, 3}, Pair{1, 2}, 256, []int{256, 3}},
+		{"tail", []int{3, 1, 2}, Pair{1, 2}, 256, []int{3, 256}},
+		{"whole", []int{1, 2}, Pair{1, 2}, 256, []int{256}},
+		{
+			"multiple",
+			[]int{1, 2, 3, 1, 2},
+			Pair{1, 2}, 256,
+			[]int{256, 3, 256},
+		},
+		{
+			// 一度置き換えた要素は次のペアの前方要素にしない
+			"overlapping run",
+			[]int{1, 1, 1},
+			Pair{1, 1}, 256,
+			[]int{256, 1},
+		},
+		{
+			"overlapping run even",
+			[]int{1, 1, 1, 1},
+			Pair{1, 1}, 256,
+			[]int{256, 256},
+		},
+		{
+			"asymmetric pair",
+			[]int{2, 1, 2, 1},
+			Pair{1, 2}, 256,
+			[]int{2, 256, 1},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Merge(tt.in, tt.pair, tt.newID)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Merge(%v, %v, %d) = %v, want %v", tt.in, tt.pair, tt.newID, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMergeDoesNotModifyInput(t *testing.T) {
+	in := []int{1, 2, 3, 1, 2}
+	want := []int{1, 2, 3, 1, 2}
+	Merge(in, Pair{1, 2}, 256)
+	if !reflect.DeepEqual(in, want) {
+		t.Errorf("Merge modified input: got %v, want %v", in, want)
+	}
+}
+
+// TestTrainStep は CountPairs と Merge を組み合わせた BPE 学習 1 ステップの動作を確認する。
+func TestTrainStep(t *testing.T) {
+	// "abcabcabd" のバイト値
+	ids := []int{97, 98, 99, 97, 98, 99, 97, 98, 100}
+
+	counts := CountPairs(ids)
+	var best Pair
+	bestCount := 0
+	for p, c := range counts {
+		if c > bestCount {
+			best, bestCount = p, c
+		}
+	}
+	if want := (Pair{97, 98}); best != want || bestCount != 3 {
+		t.Fatalf("most frequent pair = %v (%d times), want %v (3 times)", best, bestCount, want)
+	}
+
+	got := Merge(ids, best, 256)
+	want := []int{256, 99, 256, 99, 256, 100}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Merge(%v, %v, 256) = %v, want %v", ids, best, got, want)
+	}
+}
