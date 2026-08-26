@@ -142,3 +142,113 @@ func TestTrainStep(t *testing.T) {
 		t.Errorf("Merge(%v, %v, 256) = %v, want %v", ids, best, got, want)
 	}
 }
+
+func TestTrain(t *testing.T) {
+	tests := []struct {
+		name       string
+		text       string
+		vocabSize  int
+		wantIDs    []int
+		wantMerges []MergeRule
+	}{
+		{
+			// マージ回数 0 なのでバイト列のまま
+			"no merge",
+			"abc", 256,
+			[]int{97, 98, 99},
+			[]MergeRule{},
+		},
+		{
+			// {97,98} が 3 回で最頻 → 256
+			"single merge",
+			"abcabcabd", 257,
+			[]int{256, 99, 256, 99, 256, 100},
+			[]MergeRule{{Pair{97, 98}, 256}},
+		},
+		{
+			// 続けて {256,99} が 2 回で最頻 → 257
+			"two merges",
+			"abcabcabd", 258,
+			[]int{257, 257, 256, 100},
+			[]MergeRule{{Pair{97, 98}, 256}, {Pair{256, 99}, 257}},
+		},
+		{
+			// マージできるペアが無くなればマージ回数に達しなくても打ち切る
+			"exhausted",
+			"aaaa", 300,
+			[]int{257},
+			[]MergeRule{{Pair{97, 97}, 256}, {Pair{256, 256}, 257}},
+		},
+		{
+			"single byte input",
+			"a", 300,
+			[]int{97},
+			[]MergeRule{},
+		},
+		{
+			// マルチバイト文字も UTF-8 バイト列として扱う
+			"multibyte",
+			"ああ", 257,
+			[]int{256, 130, 256, 130},
+			[]MergeRule{{Pair{227, 129}, 256}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ids, merges, err := Train(tt.text, tt.vocabSize)
+			if err != nil {
+				t.Fatalf("Train(%q, %d) returned error: %v", tt.text, tt.vocabSize, err)
+			}
+			if !reflect.DeepEqual(ids, tt.wantIDs) {
+				t.Errorf("ids = %v, want %v", ids, tt.wantIDs)
+			}
+			if !reflect.DeepEqual(merges, tt.wantMerges) {
+				t.Errorf("merges = %v, want %v", merges, tt.wantMerges)
+			}
+		})
+	}
+}
+
+func TestTrainVocabSizeTooSmall(t *testing.T) {
+	if _, _, err := Train("abc", 255); err == nil {
+		t.Error("Train with vocabSize 255 = nil error, want error")
+	}
+}
+
+func TestTrainInvalidUTF8(t *testing.T) {
+	if _, _, err := Train(string([]byte{0xff, 0xfe}), 300); err == nil {
+		t.Error("Train with invalid UTF-8 = nil error, want error")
+	}
+}
+
+// TestTrainDeterministic は同数のペアが複数ある場合でも結果が一定であることを確認する。
+func TestTrainDeterministic(t *testing.T) {
+	// {97,98} {98,97} {97,99} {99,97} {97,100} がいずれも 1 回ずつ
+	const text = "abacad"
+	ids, merges, err := Train(text, 258)
+	if err != nil {
+		t.Fatalf("Train returned error: %v", err)
+	}
+	for i := 0; i < 20; i++ {
+		gotIDs, gotMerges, err := Train(text, 258)
+		if err != nil {
+			t.Fatalf("Train returned error: %v", err)
+		}
+		if !reflect.DeepEqual(gotIDs, ids) || !reflect.DeepEqual(gotMerges, merges) {
+			t.Fatalf("Train is not deterministic: (%v, %v) != (%v, %v)", gotIDs, gotMerges, ids, merges)
+		}
+	}
+}
+
+// TestTrainNewIDsAreSequential は新しいトークン ID が 256 から連番であることを確認する。
+func TestTrainNewIDsAreSequential(t *testing.T) {
+	_, merges, err := Train("abcabcabcabdabdxyzxyz", 266)
+	if err != nil {
+		t.Fatalf("Train returned error: %v", err)
+	}
+	for i, m := range merges {
+		if want := 256 + i; m.NewID != want {
+			t.Errorf("merges[%d].NewID = %d, want %d", i, m.NewID, want)
+		}
+	}
+}
