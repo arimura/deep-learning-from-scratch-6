@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ch01/bytetokenizer"
+	"github.com/arimura/deep-learning-from-scratch-6/dev/ch01/bytetokenizer"
 )
 
 func usage() {

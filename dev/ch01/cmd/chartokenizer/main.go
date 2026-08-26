@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ch01/chartokenizer"
+	"github.com/arimura/deep-learning-from-scratch-6/dev/ch01/chartokenizer"
 )
 
 func usage() {
