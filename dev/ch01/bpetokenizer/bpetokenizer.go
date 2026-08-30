@@ -8,6 +8,7 @@ package bpetokenizer
 
 import (
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/arimura/deep-learning-from-scratch-6/dev/ch01/bpetrain"
 	"github.com/arimura/deep-learning-from-scratch-6/dev/ch01/bytetokenizer"
@@ -83,6 +84,46 @@ func (t *Tokenizer) Bytes(id int) ([]byte, bool) {
 	b := make([]byte, len(src))
 	copy(b, src)
 	return b, true
+}
+
+// Encode は文字列を BPE のトークン ID 列に変換する。
+//
+// まず文字列を UTF-8 バイト列 (トークン ID 0〜255) に変換し、
+// マージ規則を学習された順に 1 つずつ適用して隣接ペアを新しいトークン ID に
+// 置き換える。マージ規則の適用には bpetrain.Merge を用いる。
+// 不正な UTF-8 バイト列が含まれる場合はエラーを返す。
+func (t *Tokenizer) Encode(s string) ([]int, error) {
+	ids, err := bytetokenizer.New().Encode(s)
+	if err != nil {
+		return nil, fmt.Errorf("bpetokenizer: %w", err)
+	}
+	for _, m := range t.merges {
+		if len(ids) < 2 {
+			break
+		}
+		ids = bpetrain.Merge(ids, m.Pair, m.NewID)
+	}
+	return ids, nil
+}
+
+// Decode はトークン ID 列を文字列に変換する。
+//
+// 各トークン ID を対応表でバイト列に展開し、すべて連結したものを
+// UTF-8 の文字列として返す。対応表に存在しないトークン ID が含まれる場合、
+// または連結した結果が正しい UTF-8 バイト列にならない場合はエラーを返す。
+func (t *Tokenizer) Decode(ids []int) (string, error) {
+	buf := make([]byte, 0, len(ids))
+	for i, id := range ids {
+		b, ok := t.idToBytes[id]
+		if !ok {
+			return "", fmt.Errorf("bpetokenizer: unknown token id %d at index %d", id, i)
+		}
+		buf = append(buf, b...)
+	}
+	if !utf8.Valid(buf) {
+		return "", fmt.Errorf("bpetokenizer: decoded bytes are not valid UTF-8")
+	}
+	return string(buf), nil
 }
 
 // Merges は学習で得られたマージ規則のコピーを適用順に返す。
