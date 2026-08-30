@@ -43,9 +43,9 @@ func TestCountPairs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CountPairs(tt.in)
+			got := CountPairs(tt.in, nil)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("CountPairs(%v) = %v, want %v", tt.in, got, tt.want)
+				t.Errorf("CountPairs(%v, nil) = %v, want %v", tt.in, got, tt.want)
 			}
 		})
 	}
@@ -54,9 +54,55 @@ func TestCountPairs(t *testing.T) {
 func TestCountPairsDoesNotModifyInput(t *testing.T) {
 	in := []int{1, 2, 3}
 	want := []int{1, 2, 3}
-	CountPairs(in)
+	CountPairs(in, nil)
 	if !reflect.DeepEqual(in, want) {
 		t.Errorf("CountPairs modified input: got %v, want %v", in, want)
+	}
+}
+
+// TestCountPairsAccumulates は counts を渡した場合に既存の値へ加算されることを確認する。
+func TestCountPairsAccumulates(t *testing.T) {
+	counts := map[Pair]int{{1, 2}: 5, {9, 9}: 1}
+	got := CountPairs([]int{1, 2, 3, 1, 2}, counts)
+
+	want := map[Pair]int{{1, 2}: 7, {2, 3}: 1, {3, 1}: 1, {9, 9}: 1}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("CountPairs with counts = %v, want %v", got, want)
+	}
+	// 渡した map そのものが更新され、同じ map が返る
+	if !reflect.DeepEqual(counts, want) {
+		t.Errorf("passed counts = %v, want %v", counts, want)
+	}
+	if reflect.ValueOf(got).Pointer() != reflect.ValueOf(counts).Pointer() {
+		t.Error("CountPairs returned a different map than the one passed in")
+	}
+}
+
+// TestCountPairsAcrossChunks は複数のトークン ID 列を順に渡して集約できることを確認する。
+func TestCountPairsAcrossChunks(t *testing.T) {
+	chunks := [][]int{
+		{97, 98, 99},
+		{97, 98, 100},
+		{},
+		{98},
+	}
+	var counts map[Pair]int
+	for _, c := range chunks {
+		counts = CountPairs(c, counts)
+	}
+	want := map[Pair]int{{97, 98}: 2, {98, 99}: 1, {98, 100}: 1}
+	if !reflect.DeepEqual(counts, want) {
+		t.Errorf("accumulated counts = %v, want %v", counts, want)
+	}
+}
+
+// TestCountPairsEmptyWithCounts は空の ids でも渡した counts がそのまま返ることを確認する。
+func TestCountPairsEmptyWithCounts(t *testing.T) {
+	counts := map[Pair]int{{1, 2}: 3}
+	got := CountPairs(nil, counts)
+	want := map[Pair]int{{1, 2}: 3}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("CountPairs(nil, counts) = %v, want %v", got, want)
 	}
 }
 
@@ -124,7 +170,7 @@ func TestTrainStep(t *testing.T) {
 	// "abcabcabd" のバイト値
 	ids := []int{97, 98, 99, 97, 98, 99, 97, 98, 100}
 
-	counts := CountPairs(ids)
+	counts := CountPairs(ids, nil)
 	var best Pair
 	bestCount := 0
 	for p, c := range counts {

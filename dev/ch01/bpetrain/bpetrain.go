@@ -20,13 +20,19 @@ type Pair struct {
 
 // CountPairs は ids の中で隣接するトークン ID のペアの出現回数を数える。
 //
+// counts が nil でない場合は、その map に出現回数を加算して同じ map を返す。
+// これにより複数のトークン ID 列にわたる出現回数を 1 つの map に集約できる。
+// counts が nil の場合は新しい map を作成して返す。
+//
 // 出現回数は左から右へ、重なりを許さずに数えるのではなく、
 // すべての隣接位置 (i, i+1) を独立に数える。
 // したがって [1 1 1] の場合、ペア {1, 1} の出現回数は 2 となる。
 //
-// ids の長さが 1 以下の場合は空の map を返す。
-func CountPairs(ids []int) map[Pair]int {
-	counts := make(map[Pair]int)
+// ids の長さが 1 以下の場合、counts はそのまま (nil なら空の map を) 返す。
+func CountPairs(ids []int, counts map[Pair]int) map[Pair]int {
+	if counts == nil {
+		counts = make(map[Pair]int)
+	}
 	for i := 0; i+1 < len(ids); i++ {
 		counts[Pair{First: ids[i], Second: ids[i+1]}]++
 	}
@@ -85,7 +91,7 @@ func Train(text string, vocabSize int) ([]int, []MergeRule, error) {
 	numMerges := vocabSize - bytetokenizer.VocabSize
 	merges := make([]MergeRule, 0, numMerges)
 	for i := 0; i < numMerges; i++ {
-		counts := CountPairs(ids)
+		counts := CountPairs(ids, nil)
 		best, ok := mostFrequentPair(ids, counts)
 		if !ok {
 			break
