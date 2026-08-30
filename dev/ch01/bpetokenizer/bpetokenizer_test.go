@@ -8,6 +8,15 @@ import (
 	"github.com/arimura/deep-learning-from-scratch-6/dev/ch01/bytetokenizer"
 )
 
+// flatten は bpetrain.Train が返すトークン ID 列の配列を 1 つの列に連結する。
+func flatten(chunks [][]int) []int {
+	var ids []int
+	for _, c := range chunks {
+		ids = append(ids, c...)
+	}
+	return ids
+}
+
 func TestNewNoMerges(t *testing.T) {
 	tok, err := New(nil)
 	if err != nil {
@@ -182,8 +191,9 @@ func TestNewFromTrain(t *testing.T) {
 	}
 
 	// 学習後の ID 列を語彙で展開すると元の文字列に戻る
+	// (text に特殊トークンは含まれないので分割は 1 つ)
 	var buf []byte
-	for _, id := range ids {
+	for _, id := range flatten(ids) {
 		b, ok := tok.Bytes(id)
 		if !ok {
 			t.Fatalf("Bytes(%d) = not found", id)
@@ -335,12 +345,13 @@ func TestRoundTrip(t *testing.T) {
 	}
 
 	// 学習対象の文字列は Train の出力と同じ ID 列にエンコードされる
+	// (corpus に特殊トークンは含まれないので分割は 1 つ)
 	got, err := tok.Encode(corpus)
 	if err != nil {
 		t.Fatalf("Encode returned error: %v", err)
 	}
-	if !reflect.DeepEqual(got, trainIDs) {
-		t.Errorf("Encode(corpus) = %v, want Train ids %v", got, trainIDs)
+	if want := flatten(trainIDs); !reflect.DeepEqual(got, want) {
+		t.Errorf("Encode(corpus) = %v, want Train ids %v", got, want)
 	}
 
 	texts := []string{

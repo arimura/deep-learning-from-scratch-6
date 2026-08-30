@@ -21,22 +21,23 @@ import (
 )
 
 func main() {
-	vocabSize := flag.Int("vocab", 276, "学習後のボキャブラリーサイズ (256 以上)")
+	vocabSize := flag.Int("vocab", 276, "学習後のボキャブラリーサイズ (257 以上、特殊トークン用の 1 語を含む)")
+	special := flag.String("special", bpetrain.DefaultSpecialToken, "学習対象の文字列を分割する特殊トークン")
 	showIDs := flag.Bool("ids", false, "学習後のトークン ID 列も表示する")
 	flag.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: bpetrain [-vocab N] [-ids] [text]")
+		fmt.Fprintln(os.Stderr, "usage: bpetrain [-vocab N] [-special TOKEN] [-ids] [text]")
 		fmt.Fprintln(os.Stderr, "  text を省略した場合は stdin から読み込む")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 
-	if err := run(*vocabSize, *showIDs, flag.Args()); err != nil {
+	if err := run(*vocabSize, *special, *showIDs, flag.Args()); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
 
-func run(vocabSize int, showIDs bool, args []string) error {
+func run(vocabSize int, special string, showIDs bool, args []string) error {
 	text, err := readText(args)
 	if err != nil {
 		return err
@@ -45,14 +46,27 @@ func run(vocabSize int, showIDs bool, args []string) error {
 		return fmt.Errorf("学習対象の文字列が空です")
 	}
 
-	ids, merges, err := bpetrain.Train(text, vocabSize)
+	chunks, merges, err := bpetrain.TrainWithSpecialToken(text, vocabSize, special)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("入力トークン数: %d\n", len(text))
-	fmt.Printf("学習後トークン数: %d\n", len(ids))
-	fmt.Printf("圧縮率: %.2fX\n", float64(len(text))/float64(len(ids)))
+	// 入力トークン数は特殊トークンを除いたバイト数で数える
+	inputTokens := 0
+	for _, part := range strings.Split(text, special) {
+		inputTokens += len(part)
+	}
+	outputTokens := 0
+	for _, ids := range chunks {
+		outputTokens += len(ids)
+	}
+
+	fmt.Printf("分割数: %d\n", len(chunks))
+	fmt.Printf("入力トークン数: %d\n", inputTokens)
+	fmt.Printf("学習後トークン数: %d\n", outputTokens)
+	if outputTokens > 0 {
+		fmt.Printf("圧縮率: %.2fX\n", float64(inputTokens)/float64(outputTokens))
+	}
 	fmt.Printf("マージ回数: %d\n", len(merges))
 
 	fmt.Println("マージ規則:")
@@ -63,12 +77,14 @@ func run(vocabSize int, showIDs bool, args []string) error {
 	}
 
 	if showIDs {
-		strs := make([]string, len(ids))
-		for i, id := range ids {
-			strs[i] = strconv.Itoa(id)
+		fmt.Println("トークン ID 列 (特殊トークンごとに分割):")
+		for _, ids := range chunks {
+			strs := make([]string, len(ids))
+			for i, id := range ids {
+				strs[i] = strconv.Itoa(id)
+			}
+			fmt.Println(" ", strings.Join(strs, " "))
 		}
-		fmt.Println("トークン ID 列:")
-		fmt.Println(" ", strings.Join(strs, " "))
 	}
 	return nil
 }

@@ -189,54 +189,85 @@ func TestTrainStep(t *testing.T) {
 	}
 }
 
+// TestTrain は Train の動作を確認する。
+// ボキャブラリーサイズは初期語彙 256 に特殊トークン用の 1 語を加えた 257 が
+// マージ回数 0 に対応する。
 func TestTrain(t *testing.T) {
 	tests := []struct {
 		name       string
 		text       string
 		vocabSize  int
-		wantIDs    []int
+		wantIDs    [][]int
 		wantMerges []MergeRule
 	}{
 		{
 			// マージ回数 0 なのでバイト列のまま
 			"no merge",
-			"abc", 256,
-			[]int{97, 98, 99},
+			"abc", 257,
+			[][]int{{97, 98, 99}},
 			[]MergeRule{},
 		},
 		{
 			// {97,98} が 3 回で最頻 → 256
 			"single merge",
-			"abcabcabd", 257,
-			[]int{256, 99, 256, 99, 256, 100},
+			"abcabcabd", 258,
+			[][]int{{256, 99, 256, 99, 256, 100}},
 			[]MergeRule{{Pair{97, 98}, 256}},
 		},
 		{
 			// 続けて {256,99} が 2 回で最頻 → 257
 			"two merges",
-			"abcabcabd", 258,
-			[]int{257, 257, 256, 100},
+			"abcabcabd", 259,
+			[][]int{{257, 257, 256, 100}},
 			[]MergeRule{{Pair{97, 98}, 256}, {Pair{256, 99}, 257}},
 		},
 		{
 			// マージできるペアが無くなればマージ回数に達しなくても打ち切る
 			"exhausted",
 			"aaaa", 300,
-			[]int{257},
+			[][]int{{257}},
 			[]MergeRule{{Pair{97, 97}, 256}, {Pair{256, 256}, 257}},
 		},
 		{
 			"single byte input",
 			"a", 300,
-			[]int{97},
+			[][]int{{97}},
 			[]MergeRule{},
 		},
 		{
 			// マルチバイト文字も UTF-8 バイト列として扱う
 			"multibyte",
-			"ああ", 257,
-			[]int{256, 130, 256, 130},
+			"ああ", 258,
+			[][]int{{256, 130, 256, 130}},
 			[]MergeRule{{Pair{227, 129}, 256}},
+		},
+		{
+			// 特殊トークンで分割され、出現回数は全配列にわたって集約される
+			"split by special token",
+			"ab<|endoftext|>ab", 258,
+			[][]int{{256}, {256}},
+			[]MergeRule{{Pair{97, 98}, 256}},
+		},
+		{
+			// 特殊トークンをまたぐペア {98,97} はカウントされない
+			"no pair across special token",
+			"ab<|endoftext|>ab<|endoftext|>ab", 300,
+			[][]int{{256}, {256}, {256}},
+			[]MergeRule{{Pair{97, 98}, 256}},
+		},
+		{
+			// 先頭・末尾・連続する特殊トークンは空の配列になる
+			"empty chunks",
+			"<|endoftext|>ab<|endoftext|><|endoftext|>", 258,
+			[][]int{{}, {256}, {}, {}},
+			[]MergeRule{{Pair{97, 98}, 256}},
+		},
+		{
+			// 特殊トークンのみの文字列でもエラーにならない
+			"only special token",
+			"<|endoftext|>", 300,
+			[][]int{{}, {}},
+			[]MergeRule{},
 		},
 	}
 	for _, tt := range tests {
@@ -255,9 +286,60 @@ func TestTrain(t *testing.T) {
 	}
 }
 
+// TestTrainWithSpecialToken は特殊トークンを差し替えられることを確認する。
+func TestTrainWithSpecialToken(t *testing.T) {
+	ids, merges, err := TrainWithSpecialToken("ab|ba", 258, "|")
+	if err != nil {
+		t.Fatalf("TrainWithSpecialToken returned error: %v", err)
+	}
+	// {97,98} と {98,97} が 1 回ずつで同数なので、先に現れる {97,98} を選ぶ
+	wantIDs := [][]int{{256}, {98, 97}}
+	wantMerges := []MergeRule{{Pair{97, 98}, 256}}
+	if !reflect.DeepEqual(ids, wantIDs) {
+		t.Errorf("ids = %v, want %v", ids, wantIDs)
+	}
+	if !reflect.DeepEqual(merges, wantMerges) {
+		t.Errorf("merges = %v, want %v", merges, wantMerges)
+	}
+
+	// 既定の特殊トークンは分割に使われない
+	ids, _, err = TrainWithSpecialToken("a<|endoftext|>a", 300, "|")
+	if err != nil {
+		t.Fatalf("TrainWithSpecialToken returned error: %v", err)
+	}
+	if len(ids) != 3 {
+		t.Errorf("len(ids) = %d, want 3 (split by %q, not by default token)", len(ids), "|")
+	}
+}
+
+func TestTrainEmptySpecialToken(t *testing.T) {
+	if _, _, err := TrainWithSpecialToken("abc", 300, ""); err == nil {
+		t.Error("TrainWithSpecialToken with empty special token = nil error, want error")
+	}
+}
+
+// TestTrainVocabSizeTooSmall は特殊トークン用の 1 語を含めた最小語彙サイズ (257)
+// 未満を指定するとエラーになることを確認する。
 func TestTrainVocabSizeTooSmall(t *testing.T) {
-	if _, _, err := Train("abc", 255); err == nil {
-		t.Error("Train with vocabSize 255 = nil error, want error")
+	for _, vocabSize := range []int{0, 255, 256} {
+		if _, _, err := Train("abc", vocabSize); err == nil {
+			t.Errorf("Train with vocabSize %d = nil error, want error", vocabSize)
+		}
+	}
+}
+
+// TestTrainNumMerges はマージ回数が vocabSize - 257 になることを確認する。
+func TestTrainNumMerges(t *testing.T) {
+	// ペアが枯渇しないよう十分に多様な文字列を使う
+	const text = "abcabcabcabdabdxyzxyz"
+	for _, vocabSize := range []int{257, 258, 260} {
+		_, merges, err := Train(text, vocabSize)
+		if err != nil {
+			t.Fatalf("Train returned error: %v", err)
+		}
+		if want := vocabSize - MinVocabSize; len(merges) != want {
+			t.Errorf("Train(%q, %d): len(merges) = %d, want %d", text, vocabSize, len(merges), want)
+		}
 	}
 }
 
