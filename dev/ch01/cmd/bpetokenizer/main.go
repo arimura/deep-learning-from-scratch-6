@@ -28,7 +28,7 @@ var merges = []bpetrain.MergeRule{
 	{Pair: bpetrain.Pair{First: 105, Second: 115}, NewID: 256},
 	{Pair: bpetrain.Pair{First: 256, Second: 32}, NewID: 257},
 	{Pair: bpetrain.Pair{First: 105, Second: 110}, NewID: 258},
-	{Pair: bpetrain.Pair{First: 72, Second: 101}, NewID: 259},
+	// {Pair: bpetrain.Pair{First: 72, Second: 101}, NewID: 259},
 }
 
 func usage() {
@@ -127,4 +127,5 @@ func runVocab(tok *bpetokenizer.Tokenizer) {
 		b, _ := tok.Bytes(m.NewID)
 		fmt.Printf("  %d <- (%d, %d)  %q\n", m.NewID, m.Pair.First, m.Pair.Second, string(b))
 	}
+	fmt.Printf("  %d <- end token  %q\n", tok.EndTokenID(), tok.EndToken())
 }

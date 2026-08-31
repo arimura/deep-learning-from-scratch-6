@@ -22,8 +22,9 @@ func TestNewNoMerges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New(nil) returned error: %v", err)
 	}
-	if got := tok.VocabSize(); got != bytetokenizer.VocabSize {
-		t.Errorf("VocabSize() = %d, want %d", got, bytetokenizer.VocabSize)
+	// 語彙は 0〜255 のバイト値 + end token の 1 語
+	if got := tok.VocabSize(); got != bytetokenizer.VocabSize+1 {
+		t.Errorf("VocabSize() = %d, want %d", got, bytetokenizer.VocabSize+1)
 	}
 	for id := 0; id < bytetokenizer.VocabSize; id++ {
 		b, ok := tok.Bytes(id)
@@ -36,6 +37,42 @@ func TestNewNoMerges(t *testing.T) {
 	}
 	if got := tok.Merges(); len(got) != 0 {
 		t.Errorf("Merges() = %v, want empty", got)
+	}
+	if got := tok.EndToken(); got != bpetrain.DefaultSpecialToken {
+		t.Errorf("EndToken() = %q, want %q", got, bpetrain.DefaultSpecialToken)
+	}
+	if got := tok.EndTokenID(); got != bytetokenizer.VocabSize {
+		t.Errorf("EndTokenID() = %d, want %d", got, bytetokenizer.VocabSize)
+	}
+	b, ok := tok.Bytes(tok.EndTokenID())
+	if !ok {
+		t.Fatalf("Bytes(%d) = not found", tok.EndTokenID())
+	}
+	if want := []byte(bpetrain.DefaultSpecialToken); !reflect.DeepEqual(b, want) {
+		t.Errorf("Bytes(%d) = %q, want %q", tok.EndTokenID(), b, want)
+	}
+}
+
+func TestNewWithEndToken(t *testing.T) {
+	tok, err := NewWithEndToken(nil, "<eos>")
+	if err != nil {
+		t.Fatalf("NewWithEndToken returned error: %v", err)
+	}
+	if got := tok.EndToken(); got != "<eos>" {
+		t.Errorf("EndToken() = %q, want %q", got, "<eos>")
+	}
+	b, ok := tok.Bytes(tok.EndTokenID())
+	if !ok {
+		t.Fatalf("Bytes(%d) = not found", tok.EndTokenID())
+	}
+	if want := []byte("<eos>"); !reflect.DeepEqual(b, want) {
+		t.Errorf("Bytes(%d) = %q, want %q", tok.EndTokenID(), b, want)
+	}
+}
+
+func TestNewWithEndTokenEmpty(t *testing.T) {
+	if _, err := NewWithEndToken(nil, ""); err == nil {
+		t.Error("NewWithEndToken(nil, \"\") = nil error, want error")
 	}
 }
 
@@ -50,8 +87,11 @@ func TestNewWithMerges(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	if got, want := tok.VocabSize(), bytetokenizer.VocabSize+len(merges); got != want {
+	if got, want := tok.VocabSize(), bytetokenizer.VocabSize+len(merges)+1; got != want {
 		t.Errorf("VocabSize() = %d, want %d", got, want)
+	}
+	if got, want := tok.EndTokenID(), bytetokenizer.VocabSize+len(merges); got != want {
+		t.Errorf("EndTokenID() = %d, want %d", got, want)
 	}
 
 	tests := []struct {
@@ -61,6 +101,7 @@ func TestNewWithMerges(t *testing.T) {
 		{97, []byte("a")},
 		{256, []byte("ab")},
 		{257, []byte("abc")},
+		{258, []byte(bpetrain.DefaultSpecialToken)},
 	}
 	for _, tt := range tests {
 		got, ok := tok.Bytes(tt.id)
@@ -140,7 +181,8 @@ func TestBytesOutOfRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []int{-1, 256, 1000} {
+	// 256 は end token の ID なので対応表に存在する
+	for _, id := range []int{-1, 257, 1000} {
 		if _, ok := tok.Bytes(id); ok {
 			t.Errorf("Bytes(%d) = found, want not found", id)
 		}
@@ -186,7 +228,7 @@ func TestNewFromTrain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
-	if got, want := tok.VocabSize(), bytetokenizer.VocabSize+len(merges); got != want {
+	if got, want := tok.VocabSize(), bytetokenizer.VocabSize+len(merges)+1; got != want {
 		t.Errorf("VocabSize() = %d, want %d", got, want)
 	}
 
@@ -227,6 +269,10 @@ func TestEncode(t *testing.T) {
 		{"first merge only", "abd", []int{256, 100}},
 		{"chained merges", "abcabcabd", []int{257, 257, 256, 100}},
 		{"merge order matters", "abcbc", []int{257, 98, 99}},
+		{"end token only", "<|endoftext|>", []int{258}},
+		{"end token between texts", "abc<|endoftext|>abd", []int{257, 258, 256, 100}},
+		{"consecutive end tokens", "<|endoftext|><|endoftext|>", []int{258, 258}},
+		{"trailing end token", "abd<|endoftext|>", []int{256, 100, 258}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -290,6 +336,7 @@ func TestDecode(t *testing.T) {
 		{"merged token", []int{257}, "あ"},
 		{"partial merge plus byte", []int{256, 0x82}, "あ"},
 		{"mixed", []int{97, 257, 257, 98}, "aああb"},
+		{"end token", []int{97, 258, 98}, "a<|endoftext|>b"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -317,7 +364,7 @@ func TestDecodeInvalid(t *testing.T) {
 		in   []int
 	}{
 		{"negative id", []int{-1}},
-		{"id beyond vocab", []int{257}},
+		{"id beyond vocab", []int{258}}, // 257 は end token の ID
 		{"far out of range", []int{97, 1000}},
 		{"incomplete utf-8", []int{256}}, // E3 81 だけでは不完全
 		{"invalid utf-8 byte", []int{0xFF}},
@@ -360,6 +407,7 @@ func TestRoundTrip(t *testing.T) {
 		"hello",
 		"こんにちは",
 		"未知の文字列 with emoji 😀 and\nnewline",
+		"hello<|endoftext|>こんにちは<|endoftext|>",
 	}
 	for _, text := range texts {
 		ids, err := tok.Encode(text)
