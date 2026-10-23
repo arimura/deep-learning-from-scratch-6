@@ -2,6 +2,11 @@
 
 my environment for https://github.com/oreilly-japan/deep-learning-from-scratch-6
 
+## 今後の環境移行方針
+
+eMudhra 対応のため、Devbox／Nix と Python 3.12 への依存を外し、uv と Python 3.15 系へ移行する予定。
+現時点では方針の記録のみで、移行は未実施。以下は現在の環境での手順。
+
 ## セットアップ
 
 ```bash
