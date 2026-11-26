@@ -1,4 +1,5 @@
 from collections import defaultdict
+import token
 
 def count_pairs(ids):
     counts = defaultdict(int)
@@ -31,7 +32,7 @@ class BPETokenizer:
         self.vocab_size = len(self.id_to_bytes)
 
     def encode(self, text):
-        ids = list(text.encode("urf-8"))
+        ids = list(text.encode("utf-8"))
 
         for merge_pair, new_id in self.merge_rules.items():
             ids = merge(ids, merge_pair, new_id)
@@ -45,3 +46,14 @@ class BPETokenizer:
 
         text = combained_bytes.decode("utf-8", errors="replace")
         return text
+
+merge_rules = {(105, 115): 256, (256, 32): 257, (105, 110): 258, (72, 101): 259}
+
+tokenizer = BPETokenizer(merge_rules)
+
+text = "Hello世界😁"
+ids = tokenizer.encode(text)
+decoded = tokenizer.decode(ids)
+
+print(ids)
+print(decoded)
